@@ -49,6 +49,7 @@ pub struct emulator
     stack: [u16; STACK_SIZE],
     registers: [u8; REGISTERS],
     i_register: u16,
+    sp: u16,
     //uses boolean to identify keypresses
     keypad: [bool; KEYPAD_SIZE],
     sound_timer: u8,
@@ -67,6 +68,7 @@ impl emulator
             stack: [0; STACK_SIZE],
             registers: [0; REGISTERS],
             i_register: 0,
+            sp: 0,
             keypad: [false; KEYPAD_SIZE],
             sound_timer: 0,
             delay_timer: 0
@@ -104,6 +106,18 @@ impl emulator
         }
 
     }
+    //decrements pc
+    fn pop(&mut self)-> u16{
+        self.sp -=1;
+        self.stack[self.sp as usize]
+    }
+    //increments pc
+    fn push(&mut self, value: u16)
+    {
+        self.stack[self.sp as usize] = value;
+        self.sp +=1;
+    }
+
     fn fetch(&mut self) -> u16
     {
         let upper_byte = self.ram[self.pc as usize] as u16;
@@ -113,7 +127,44 @@ impl emulator
     }
     fn decode(&mut self, op:u16)
     {
-        
+        let digit1 = (op & 0xf000) >> 12;
+        let digit2 = (op & 0x0f00) >> 8;
+        let digit3 = (op & 0x00f0) >> 4;
+        let digit4 = (op & 0x000f);
+
+        match (digit1, digit2, digit3, digit4)
+        {
+            (0,0,0,0) => {return}
+            (0,0,0xe, 0) => {self.display = [false;DISPLAY_HEIGHT*DISPLAY_WIDTH]}
+            (0,0,0xe, 0xe) => {
+                let return_address = self.pop();
+            self.pc = return_address;}
+            (1,_,_,_) => {
+                let address = op & 0x0fff;
+                self.pc = address;
+            }
+            (2,_,_,_) => {
+                let address = op& 0x0fff;
+                self.push(self.pc);
+                self.pc = address;
+            }
+            (3,_,_,_) => {
+                //todo check for better methods
+                let vx = (op & 0x00ff) >> 8;
+                let byte = op & 0x00ff;
+                if vx == byte{
+                    self.pc +=2;
+                }
+
+            }
+            (4,_,_,_) => {}
+            (5,_,_,_) => {}
+            (6,_,_,_) => {}
+            (7,_,_,_) => {}
+            (8,_,_,_) => {}
+            (_,_,_,_)=> {println!("Unimplemnted OP code")}
+        }
+
     }
 
 }
