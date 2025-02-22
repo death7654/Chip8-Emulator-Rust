@@ -81,9 +81,13 @@ impl emulator {
         self.sound_timer = 0;
         self.delay_timer = 0;
     }
-    pub fn tick(&mut self) {
+    pub fn cycle(&mut self) {
         let op = self.fetch();
 
+        self.decode(op);
+    }
+    fn timer(&mut self)
+    {
         if self.delay_timer > 0 {
             self.delay_timer -= 1;
         }
@@ -91,12 +95,17 @@ impl emulator {
             //TODO implement sound
             self.sound_timer -= 1;
         }
-        self.decode(op);
     }
     //decrements pc
     fn pop(&mut self) -> u16 {
         self.sp -= 1;
         self.stack[self.sp as usize]
+    }
+    fn load(&mut self, data: &[u8])
+    {
+        let start_address = START_ADDRESS as usize;
+        let end_address =  &start_address + data.len();
+        self.ram[start_address..end_address].copy_from_slice(data);
     }
     //increments pc
     fn push(&mut self, value: u16) {
@@ -385,7 +394,7 @@ impl emulator {
                 }
             }
             (_, _, _, _) => {
-                println!("Unimplemnted OP code")
+                println!("Unimplemnted OP code {:#04x}", op)
             }
         }
     }
