@@ -157,11 +157,123 @@ impl emulator
                 }
 
             }
-            (4,_,_,_) => {}
-            (5,_,_,_) => {}
-            (6,_,_,_) => {}
-            (7,_,_,_) => {}
-            (8,_,_,_) => {}
+            (4,_,_,_) => {
+                let vx = (op & 0x0f00)>>8;
+                let byte = op & 0x00ff;
+                if vx != byte
+                {
+                    self.pc +=2;
+                }
+            }
+            (5,_,_,_) => {
+                let vx = (op & 0x0f00) >> 8;
+                let vy = (op & 0x00f0) >> 4;
+                if self.registers[vx as usize] == self.registers[vy as usize]
+                {
+                    self.pc +=2;
+                }
+            }
+            (6,_,_,_) => {
+                let vx = (op & 0xf00) >> 8;
+                let byte =  (op & 0x00ff) as u8;
+                self.registers[vx as usize] = byte;
+            }
+            (7,_,_,_) => {
+                let vx = (op & 0xf00) >> 8;
+                let byte = (op & 0x00f0) as u8;
+                self.registers[vx as usize] += byte;
+            }
+            (8,_,_,0) => {
+                let vx = (op & 0x0f00) >> 8;
+                let vy = (op & 0x00f0) >> 4;
+                self.registers[vx as usize] = self.registers[vy as usize];
+            }
+            (8,_,_,1) => 
+            {
+                let vx = (op & 0x0f00) >> 8;
+                let vy = (op & 0x00f0) >> 4;
+                self.registers[vx as usize] |= self.registers[vy as usize];
+            }
+            (8,0,0,2) =>
+            {
+                let vx = (op & 0x0f00) >> 8;
+                let vy = (op & 0x00f0) >> 4;
+                self.registers[vx as usize] &= self.registers[vy as usize];
+            }
+            (8,_,_,3) =>
+            {
+                let vx = (op & 0x0f00) >> 8;
+                let vy = (op & 0x00f0) >> 4;
+                self.registers[vx as usize] ^= self.registers[vy as usize];
+            }
+            (8,_,_,4) =>
+            {
+                let vx = (op & 0x0f00) >> 8;
+                let vy = (op & 0x00f0) >> 4;
+                let (new_vx, carry) = self.registers[vx as usize].overflowing_add(self.registers[vy as usize]);
+                if carry
+                {
+                    self.registers[0xf] = 1;
+                }
+                else {
+                    self.registers[0xf] = 0;
+                }
+
+                self.registers[vx as usize] = new_vx;
+
+            }
+            (8,_,_,5) => 
+            {
+                let vx = (op & 0x0f00) >> 8;
+                let vy = (op & 0x00f0) >> 4;
+                if self.registers[vx as usize] > self.registers[vy as usize]
+                {
+                    self.registers[0xf] = 1;
+                }
+                else {
+                    self.registers[0xf] = 0;
+                }
+                self.registers[vx as usize] -= self.registers[vy as usize];
+            }
+            (8,_,_,6) =>
+            {
+                let vx = (op & 0x0f00) >> 8;
+                self.registers[0xf] = self.registers[vx as usize] & 0x1;
+                self.registers[vx as usize] >>=1;
+            }
+            (8,_,_,7) => 
+            {
+                let vx = (op & 0x0f00) >> 8;
+                let vy = (op & 0x00f0) >> 4;
+                if self.registers[vx as usize] > self.registers[vy as usize]
+                {
+                    self.registers[0xf] = 1;
+                }
+                else {
+                    self.registers[0xf] = 0;
+                }
+                self.registers[vx as usize] -= self.registers[vy as usize];
+            }
+            (8,_,_,0xE) =>
+            {
+                let vx = (op & 0x0f00) >> 8;
+                self.registers[0xf] = (self.registers[vx as usize] & 0x1) >> 7;
+                self.registers[vx as usize] <<=1;
+            }
+            (9,_,_,0) =>
+            {
+                let vx = (op & 0x0f00) >> 8;
+                let vy = (op & 0x00f0) >> 4;
+                if self.registers[vx as usize] != self.registers[vy as usize]
+                {
+                    self.pc +=2;
+                }
+            }
+            (0xA,_,_,_) =>
+            {
+                let address = op & 0x0fff;
+                self.ram_index = address
+            }
             (_,_,_,_)=> {println!("Unimplemnted OP code")}
         }
 
