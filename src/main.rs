@@ -7,6 +7,7 @@ TODO
 */
 
 use rand::Rng;
+use sdl2::keyboard::Keycode;
 use sdl2::pixels::Color;
 use sdl2::rect::Rect;
 use sdl2::render::Canvas;
@@ -292,7 +293,6 @@ impl Emulator {
                     let pixels = self.ram[address as usize];
                     //8 as there are 8 pixels and 64/8 = 8
                     for x_axis in 0..8 {
-                        //as the chip8 interperter wraps around the screen the modulus operator will wrap it for us
                         if (pixels & (0b1000_0000 >> x_axis)) != 0 {
                             //as the chip8 interperter wraps around the screen the modulus operator will wrap it for us
 
@@ -407,13 +407,14 @@ fn main() {
     let sdl_context = sdl2::init().unwrap();
     let video_subsystem = sdl_context.video().unwrap();
 
+    //opengl generates sprites faster than vulkan
     let window = video_subsystem
         .window("Chip_8", WINDOW_WIDTH, WINDOW_HEIGHT)
         .position_centered()
         .opengl()
         .build()
         .unwrap();
-
+    //create a canvas with vsync
     let mut canvas = window.into_canvas().present_vsync().build().unwrap();
 
     canvas.clear();
@@ -436,9 +437,10 @@ fn main() {
     'gameloop: loop {
         for evt in event_pump.poll_iter() {
             match evt {
+
                 Event::Quit { .. } => {
                     break 'gameloop;
-                }
+                },
                 _ => (),
             }
         }
@@ -469,4 +471,28 @@ fn draw_screen(emu: &Emulator, canvas: &mut Canvas<Window>) {
         }
     }
     canvas.present();
+}
+
+fn get_input(key: Keycode) -> Option<usize>
+{
+    match key
+    {
+        Keycode::Num1 => Some(0x1),
+        Keycode::Num2 =>    Some(0x2),
+        Keycode::Num3 =>    Some(0x3),
+        Keycode::Num4 =>    Some(0xC),
+        Keycode::Q =>       Some(0x4),
+        Keycode::W =>       Some(0x5),
+        Keycode::E =>       Some(0x6),
+        Keycode::R =>       Some(0xD),
+        Keycode::A =>       Some(0x7),
+        Keycode::S =>       Some(0x8),
+        Keycode::D =>       Some(0x9),
+        Keycode::F =>       Some(0xE),
+        Keycode::Z =>       Some(0xA),
+        Keycode::X =>       Some(0x0),
+        Keycode::C =>       Some(0xB),
+        Keycode::V =>       Some(0xF),
+        _ => None
+    }
 }
