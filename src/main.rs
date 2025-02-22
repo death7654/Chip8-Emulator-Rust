@@ -1,4 +1,10 @@
+use std::{env::{self, args}, fs::File, io::Read};
+use sdl2::pixels::Color;
+use sdl2::rect::Rect;
+use sdl2::render::Canvas;
+use sdl2::video::Window;
 use rand::Rng;
+use sdl2::{self, event::Event};
 
 const MEMORY_SIZE: usize = 4096;
 const REGISTERS: usize = 16;
@@ -31,6 +37,8 @@ const FONT_SET: [u8; FONTSIZE] = [
     0xF0, 0x80, 0xF0, 0x80, 0xF0, // E
     0xF0, 0x80, 0xF0, 0x80, 0x80, // F
 ];
+
+const TICKS_PER_FRAME: usize = 10;
 
 /*
 0x000 - 0x1ff //the interpreter
@@ -177,7 +185,7 @@ impl emulator {
             (7, _, _, _) => {
                 let vx = (op & 0xf00) >> 8;
                 let byte = (op & 0x00f0) as u8;
-                self.registers[vx as usize] += byte;
+                self.registers[vx as usize] = self.registers[vx as usize].wrapping_add(byte);
             }
             (8, _, _, 0) => {
                 let vx = (op & 0x0f00) >> 8;
@@ -213,14 +221,14 @@ impl emulator {
                 self.registers[vx as usize] = new_vx;
             }
             (8, _, _, 5) => {
-                let vx = (op & 0x0f00) >> 8;
-                let vy = (op & 0x00f0) >> 4;
-                if self.registers[vx as usize] > self.registers[vy as usize] {
-                    self.registers[0xf] = 1;
-                } else {
-                    self.registers[0xf] = 0;
-                }
-                self.registers[vx as usize] -= self.registers[vy as usize];
+                let x = digit2 as usize;
+                let y = digit3 as usize;
+
+                let (new_vx, borrow) = self.registers[x].overflowing_sub(self.registers[y]);
+                let new_vf = if borrow { 0 } else { 1 };
+
+                self.registers[x] = new_vx;
+                self.registers[0xF] = new_vf;
             }
             (8, _, _, 6) => {
                 let vx = (op & 0x0f00) >> 8;
@@ -402,4 +410,72 @@ impl emulator {
 
 fn main() {
     println!("Hello, world!");
+    let sdl_context = sdl2::init().unwrap();
+    let video_subsystem = sdl_context.video().unwrap();
+
+    let window = video_subsystem.window("Chip_8", (DISPLAY_WIDTH as u32) *10, (DISPLAY_HEIGHT as u32)*10).position_centered().vulkan().build().unwrap();
+
+    let mut canvas = window.into_canvas().present_vsync().build().unwrap();
+
+    canvas.clear();
+    canvas.present();
+
+    let mut event_pump = sdl_context.event_pump().unwrap();
+
+
+    //create new emulator
+    let mut chip8 = emulator::new();
+
+    let args: Vec<String> = env::args().collect(); 
+    let filename = args.get(1).expect("Usage: program <file>");
+    //read to rom
+    let mut rom = File::open(filename).expect("Unable to open file");
+    let mut buffer = Vec::new();
+
+    //read file into buffer
+    rom.read_to_end(&mut buffer).unwrap();
+
+    //load rom
+    chip8.load(&buffer);
+
+    'gameloop: loop {
+        for evt in event_pump.poll_iter() {
+            match evt {
+                Event::Quit{..} => {
+                    break 'gameloop;
+                },
+                _ => ()
+            }
+        }
+        for _ in 0..TICKS_PER_FRAME {
+            chip8.cycle();
+        }
+        //tick both values
+        chip8.timer();
+        draw_screen(&chip8, &mut canvas);
+    }
+
+
+}
+
+fn draw_screen(emu: &emulator, canvas: &mut Canvas<Window>) {
+    // Clear canvas as black
+    canvas.set_draw_color(Color::RGB(0, 0, 0));
+    canvas.clear();
+
+    let screen_buf = emu.get_display();
+    // Now set draw color to white, iterate through each point and see if it should be drawn
+    canvas.set_draw_color(Color::RGB(255, 255, 255));
+    for (i, pixel) in screen_buf.iter().enumerate() {
+        if *pixel {
+            // Convert our 1D array's index into a 2D (x,y) position
+            let x = (i % DISPLAY_WIDTH) as u32;
+            let y = (i / DISPLAY_HEIGHT) as u32;
+
+            // Draw a rectangle at (x,y), scaled up by our SCALE value
+            let rect = Rect::new((x * 10) as i32, (y * 10) as i32, 10, 10);
+            canvas.fill_rect(rect).unwrap();
+        }
+    }
+    canvas.present();
 }
