@@ -1,20 +1,22 @@
 /*
-TODO 
+TODO
 - Add sound
 - Add Input
 - Fix OPCODES
 
 */
 
-
-
-use std::{env::{self, args}, fs::File, io::Read};
+use rand::Rng;
 use sdl2::pixels::Color;
 use sdl2::rect::Rect;
 use sdl2::render::Canvas;
 use sdl2::video::Window;
-use rand::Rng;
 use sdl2::{self, event::Event};
+use std::{
+    env::{self},
+    fs::File,
+    io::Read,
+};
 
 const MEMORY_SIZE: usize = 4096;
 const REGISTERS: usize = 16;
@@ -23,9 +25,13 @@ const DISPLAY_HEIGHT: usize = 32;
 const DISPLAY_WIDTH: usize = 64;
 const KEYPAD_SIZE: usize = 16;
 
+const SCALE: u32 = 15;
+const WINDOW_WIDTH: u32 = (DISPLAY_WIDTH as u32) * SCALE;
+const WINDOW_HEIGHT: u32 = (DISPLAY_HEIGHT as u32) * SCALE;
+const TICKS_PER_FRAME: usize = 10;
+
 //addresses
 const START_ADDRESS: u16 = 0x200;
-const FONT_START_ADDRESS: u16 = 0x050;
 
 //fonts
 const FONTSIZE: usize = 80;
@@ -48,15 +54,13 @@ const FONT_SET: [u8; FONTSIZE] = [
     0xF0, 0x80, 0xF0, 0x80, 0x80, // F
 ];
 
-const TICKS_PER_FRAME: usize = 10;
-
 /*
 0x000 - 0x1ff //the interpreter
 0x050-0x0a0 //font
 0x200-0xfff //program space
  */
 
-pub struct emulator {
+pub struct Emulator {
     pc: u16,
     ram: [u8; MEMORY_SIZE],
     ram_index: u16,
@@ -71,7 +75,7 @@ pub struct emulator {
     delay_timer: u8,
 }
 
-impl emulator {
+impl Emulator {
     pub fn new() -> Self {
         let mut new_emulator = Self {
             pc: START_ADDRESS,
@@ -95,17 +99,18 @@ impl emulator {
         self.ram_index = 0;
         self.stack = [0; STACK_SIZE];
         self.registers = [0; REGISTERS];
+        self.sp = 0;
         self.keypad = [false; KEYPAD_SIZE];
         self.sound_timer = 0;
         self.delay_timer = 0;
+        self.ram[..FONTSIZE].copy_from_slice(&FONT_SET);
     }
     pub fn cycle(&mut self) {
         let op = self.fetch();
 
         self.decode(op);
     }
-    fn timer(&mut self)
-    {
+    fn timer(&mut self) {
         if self.delay_timer > 0 {
             self.delay_timer -= 1;
         }
@@ -119,10 +124,9 @@ impl emulator {
         self.sp -= 1;
         self.stack[self.sp as usize]
     }
-    fn load(&mut self, data: &[u8])
-    {
+    fn load(&mut self, data: &[u8]) {
         let start_address = START_ADDRESS as usize;
-        let end_address =  &start_address + data.len();
+        let end_address = &start_address + data.len();
         self.ram[start_address..end_address].copy_from_slice(data);
     }
     //increments pc
@@ -140,95 +144,91 @@ impl emulator {
     fn fetch(&mut self) -> u16 {
         let upper_byte = self.ram[self.pc as usize] as u16;
         let lower_byte = self.ram[(self.pc + 1) as usize] as u16;
+        let op = (upper_byte << 8) | lower_byte;
         self.pc += 2;
-        ((upper_byte << 8) | lower_byte)
+        op
     }
     fn decode(&mut self, op: u16) {
-        let digit1 = (op & 0xf000) >> 12;
-        let digit2 = (op & 0x0f00) >> 8;
-        let digit3 = (op & 0x00f0) >> 4;
-        let digit4 = (op & 0x000f);
+        let digit1 = (op & 0xF000) >> 12;
+        let digit2 = (op & 0x0F00) >> 8;
+        let digit3 = (op & 0x00F0) >> 4;
+        let digit4 = op & 0x000F;
 
         match (digit1, digit2, digit3, digit4) {
             (0, 0, 0, 0) => return,
-            (0, 0, 0xe, 0) => self.display = [false; DISPLAY_HEIGHT * DISPLAY_WIDTH],
-            (0, 0, 0xe, 0xe) => {
+            (0, 0, 0xE, 0) => self.display = [false; DISPLAY_HEIGHT * DISPLAY_WIDTH],
+            (0, 0, 0xE, 0xE) => {
                 let return_address = self.pop();
                 self.pc = return_address;
             }
             (1, _, _, _) => {
-                let address = op & 0x0fff;
+                let address = op & 0xFFF;
                 self.pc = address;
             }
             (2, _, _, _) => {
-                let address = op & 0x0fff;
+                let address = op & 0xFFF;
                 self.push(self.pc);
                 self.pc = address;
             }
             (3, _, _, _) => {
-                //todo check for better methods
-                let vx = (op & 0x00ff) >> 8;
-                let byte = op & 0x00ff;
-                if vx == byte {
+                let vx = digit2 as usize;
+                let byte = (op & 0xFF) as u8;
+                if self.registers[vx] == byte {
                     self.pc += 2;
                 }
             }
             (4, _, _, _) => {
-                let vx = (op & 0x0f00) >> 8;
-                let byte = op & 0x00ff;
-                if vx != byte {
+                let vx = digit2 as usize;
+                let byte = (op & 0xFF) as u8;
+                if self.registers[vx] != byte {
                     self.pc += 2;
                 }
             }
-            (5, _, _, _) => {
-                let vx = (op & 0x0f00) >> 8;
-                let vy = (op & 0x00f0) >> 4;
-                if self.registers[vx as usize] == self.registers[vy as usize] {
+            (5, _, _, 0) => {
+                let vx = digit2 as usize;
+                let vy = digit3 as usize;
+                if self.registers[vx] == self.registers[vy] {
                     self.pc += 2;
                 }
             }
             (6, _, _, _) => {
-                let vx = (op & 0xf00) >> 8;
-                let byte = (op & 0x00ff) as u8;
-                self.registers[vx as usize] = byte;
+                let vx = digit2 as usize;
+                let byte = (op & 0xFF) as u8;
+                self.registers[vx] = byte;
             }
             (7, _, _, _) => {
-                let vx = (op & 0xf00) >> 8;
-                let byte = (op & 0x00f0) as u8;
-                self.registers[vx as usize] = self.registers[vx as usize].wrapping_add(byte);
+                let vx = digit2 as usize;
+                let byte = (op & 0xFF) as u8;
+                self.registers[vx] = self.registers[vx].wrapping_add(byte);
             }
             (8, _, _, 0) => {
-                let vx = (op & 0x0f00) >> 8;
-                let vy = (op & 0x00f0) >> 4;
-                self.registers[vx as usize] = self.registers[vy as usize];
+                let vx = digit2 as usize;
+                let vy = digit3 as usize;
+                self.registers[vx] = self.registers[vy];
             }
             (8, _, _, 1) => {
-                let vx = (op & 0x0f00) >> 8;
-                let vy = (op & 0x00f0) >> 4;
-                self.registers[vx as usize] |= self.registers[vy as usize];
+                let vx = digit2 as usize;
+                let vy = digit3 as usize;
+                self.registers[vx] |= self.registers[vy];
             }
             (8, _, _, 2) => {
-                let vx = (op & 0x0f00) >> 8;
-                let vy = (op & 0x00f0) >> 4;
-                self.registers[vx as usize] &= self.registers[vy as usize];
+                let vx = digit2 as usize;
+                let vy = digit3 as usize;
+                self.registers[vx] &= self.registers[vy];
             }
             (8, _, _, 3) => {
-                let vx = (op & 0x0f00) >> 8;
-                let vy = (op & 0x00f0) >> 4;
-                self.registers[vx as usize] ^= self.registers[vy as usize];
+                let vx = digit2 as usize;
+                let vy = digit3 as usize;
+                self.registers[vx] ^= self.registers[vy];
             }
             (8, _, _, 4) => {
-                let vx = (op & 0x0f00) >> 8;
-                let vy = (op & 0x00f0) >> 4;
-                let (new_vx, carry) =
-                    self.registers[vx as usize].overflowing_add(self.registers[vy as usize]);
-                if carry {
-                    self.registers[0xf] = 1;
-                } else {
-                    self.registers[0xf] = 0;
-                }
+                let vx = digit2 as usize;
+                let vy = digit3 as usize;
+                let (new_vx, carry) = self.registers[vx].overflowing_add(self.registers[vy]);
+                let new_vf = if carry { 1 } else { 0 };
 
-                self.registers[vx as usize] = new_vx;
+                self.registers[vx] = new_vx;
+                self.registers[0xF] = new_vf;
             }
             (8, _, _, 5) => {
                 let x = digit2 as usize;
@@ -241,45 +241,44 @@ impl emulator {
                 self.registers[0xF] = new_vf;
             }
             (8, _, _, 6) => {
-                let vx = (op & 0x0f00) >> 8;
-                self.registers[0xf] = self.registers[vx as usize] & 0x1;
-                self.registers[vx as usize] >>= 1;
+                let vx = digit2 as usize;
+                self.registers[vx] >>= 1;
+                self.registers[0xF] = self.registers[vx] & 1;
             }
             (8, _, _, 7) => {
-                let vx = (op & 0x0f00) >> 8;
-                let vy = (op & 0x00f0) >> 4;
-                if self.registers[vx as usize] > self.registers[vy as usize] {
-                    self.registers[0xf] = 1;
-                } else {
-                    self.registers[0xf] = 0;
-                }
-                self.registers[vx as usize] -= self.registers[vy as usize];
+                let vx = digit2 as usize;
+                let vy = digit3 as usize;
+                let (new_vx, borrow) = self.registers[vy].overflowing_sub(self.registers[vx]);
+                let new_vf = if borrow { 0 } else { 1 };
+
+                self.registers[vx] = new_vx;
+                self.registers[0xF] = new_vf;
             }
             (8, _, _, 0xE) => {
-                let vx = (op & 0x0f00) >> 8;
-                self.registers[0xf] = (self.registers[vx as usize] & 0x1) >> 7;
-                self.registers[vx as usize] <<= 1;
+                let vx = digit2 as usize;
+                self.registers[vx] <<= 1;
+                self.registers[0xF] = (self.registers[vx] >> 7) & 1;
             }
             (9, _, _, 0) => {
-                let vx = (op & 0x0f00) >> 8;
-                let vy = (op & 0x00f0) >> 4;
-                if self.registers[vx as usize] != self.registers[vy as usize] {
+                let vx = digit2 as usize;
+                let vy = digit3 as usize;
+                if self.registers[vx] != self.registers[vy] {
                     self.pc += 2;
                 }
             }
             (0xA, _, _, _) => {
-                let address = op & 0x0fff;
+                let address = op & 0xFFF;
                 self.ram_index = address
             }
             (0xB, _, _, _) => {
-                let address = op & 0x0fff;
+                let address = op & 0xFFF;
                 self.pc = (self.registers[0] as u16) + address;
             }
             (0xC, _, _, _) => {
-                let vx = (op & 0x0f00) >> 8;
-                let nn = (op & 0xFF) as u8;
+                let vx = digit2 as usize;
+                let address = (op & 0xFF) as u8;
                 let rng: u8 = rand::thread_rng().gen();
-                self.registers[vx as usize] = rng & nn;
+                self.registers[vx] = rng & address;
             }
             (0xD, _, _, _) => {
                 let x_coordinate = self.registers[digit2 as usize] as u16;
@@ -288,127 +287,111 @@ impl emulator {
 
                 let mut flipped = false;
 
-                for y_axis in 0..rows{
+                for y_axis in 0..rows {
                     let address = self.ram_index + y_axis as u16;
                     let pixels = self.ram[address as usize];
                     //8 as there are 8 pixels and 64/8 = 8
-                    for x_axis in 0..8
-                    {
+                    for x_axis in 0..8 {
                         //as the chip8 interperter wraps around the screen the modulus operator will wrap it for us
-                        let x = (x_coordinate + x_axis) as usize % DISPLAY_WIDTH;
-                        let y = (y_coordinate + y_axis) as usize % DISPLAY_HEIGHT;
+                        if (pixels & (0b1000_0000 >> x_axis)) != 0 {
+                            //as the chip8 interperter wraps around the screen the modulus operator will wrap it for us
 
-                        let idx = x + DISPLAY_WIDTH * y;
+                            let x = (x_coordinate + x_axis) as usize % DISPLAY_WIDTH;
+                            let y = (y_coordinate + y_axis) as usize % DISPLAY_HEIGHT;
 
-                        flipped |= self.display[idx];
-                        self.display[idx] ^= true;
-
+                            // Get our pixel's index for our 1D screen array
+                            let idx = x + DISPLAY_WIDTH * y;
+                            // Check if we're about to flip the pixel and set
+                            flipped |= self.display[idx];
+                            self.display[idx] ^= true;
+                        }
                     }
                 }
 
-                if flipped 
-                {
-                    self.registers[0xf] = 1
-                }
-                else {
-                    self.registers[0xf] = 0
+                if flipped {
+                    self.registers[0xF] = 1
+                } else {
+                    self.registers[0xF] = 0
                 }
             }
-            (0xe,_,9,0xe) =>
-            {
+            (0xE, _, 9, 0xE) => {
                 let x = digit2 as usize;
                 let vx = self.registers[x];
                 let key_pressed = self.keypad[vx as usize];
-                if key_pressed
-                {
-                    self.pc +=2;
+                if key_pressed {
+                    self.pc += 2;
                 }
             }
-            (0xe, _, 0xa, 1) =>
-            {
+            (0xE, _, 0xA, 1) => {
                 let x = digit2 as usize;
                 let vx = self.registers[x];
                 let key_pressed = self.keypad[vx as usize];
-                if !key_pressed
-                {
-                    self.pc +=2;
+                if !key_pressed {
+                    self.pc += 2;
                 }
             }
-            (0xf,_,0,7) =>
-            {
+            (0xF, _, 0, 7) => {
                 let x = digit2 as usize;
-                self.registers[x]= self.delay_timer;
+                self.registers[x] = self.delay_timer;
             }
-            (0xf,_,0,0xa) =>
-            {
+            (0xF, _, 0, 0xA) => {
                 let x = digit2 as usize;
                 let mut pressed = false;
-                for i in 0..self.keypad.len()
-                {
-                    if self.keypad[i]
-                    {
+                for i in 0..self.keypad.len() {
+                    if self.keypad[i] {
                         self.registers[x] = i as u8;
                         pressed = true;
                         break;
                     }
                 }
 
-                if !pressed
-                {
-                    self.pc -=2;
+                if !pressed {
+                    self.pc -= 2;
                 }
             }
-            (0xf,_,1,5) =>
-            {
+            (0xF, _, 1, 5) => {
                 let vx = digit2 as usize;
                 self.delay_timer = self.registers[vx];
             }
-            (0xf,_,1,8) =>
-            {
-                let vx = (op & 0xf00) >> 8;
-                self.sound_timer = self.registers[vx as usize];
+            (0xF, _, 1, 8) => {
+                let vx = digit2 as usize;
+                self.sound_timer = self.registers[vx];
             }
-            (0xf,_,1,0xe) =>
-            {
+            (0xF, _, 1, 0xE) => {
                 let x = digit2 as usize;
                 let vx = self.registers[x] as u16;
                 self.ram_index = self.ram_index.wrapping_add(vx);
             }
-            (0xf,_,2,9)=>
-            {
+            (0xF, _, 2, 9) => {
                 let x = digit2 as usize;
                 let c = self.registers[x] as u16;
                 self.ram_index = c * 5;
             }
-            (0xf,_,3,3) =>
-            {
+            (0xF, _, 3, 3) => {
                 //todo make faster
                 let x = digit2 as usize;
-            let vx = self.registers[x] as f32;
+                let vx = self.registers[x] as f32;
 
-            let hundreds = (vx / 100.0).floor() as u8;
-            let tens = ((vx / 10.0) % 10.0).floor() as u8;
-            let ones = (vx % 10.0) as u8;
+                let hundreds = (vx / 100.0).floor() as u8;
+                let tens = ((vx / 10.0) % 10.0).floor() as u8;
+                let ones = (vx % 10.0) as u8;
 
-            self.ram[self.ram_index as usize] = hundreds;
+                self.ram[self.ram_index as usize] = hundreds;
                 self.ram[(self.ram_index + 1) as usize] = tens;
                 self.ram[(self.ram_index + 2) as usize] = ones;
             }
-            (0xf,_,5,5) =>
-            {
+            (0xF, _, 5, 5) => {
                 let x = digit2 as usize;
-                let i = self.registers[x] as usize;
-                for idx in 0..=x{
-                    self.ram[i+ idx] = self.registers[idx];
+                let i = self.ram_index as usize;
+                for idx in 0..=x {
+                    self.ram[i + idx] = self.registers[idx];
                 }
             }
-            (0xf,_,6,5) =>
-            {
+            (0xF, _, 6, 5) => {
                 let x = digit2 as usize;
-                let i = self.registers[x] as usize;
-                for idx in 0..=x
-                {
-                    self.registers[idx] = self.ram[i+idx];
+                let i = self.ram_index as usize;
+                for idx in 0..=x {
+                    self.registers[idx] = self.ram[i + idx];
                 }
             }
             (_, _, _, _) => {
@@ -420,10 +403,16 @@ impl emulator {
 
 fn main() {
     println!("Hello, world!");
+    let args: Vec<_> = env::args().collect();
     let sdl_context = sdl2::init().unwrap();
     let video_subsystem = sdl_context.video().unwrap();
 
-    let window = video_subsystem.window("Chip_8", (DISPLAY_WIDTH as u32) *10, (DISPLAY_HEIGHT as u32)*10).position_centered().opengl().build().unwrap();
+    let window = video_subsystem
+        .window("Chip_8", WINDOW_WIDTH, WINDOW_HEIGHT)
+        .position_centered()
+        .opengl()
+        .build()
+        .unwrap();
 
     let mut canvas = window.into_canvas().present_vsync().build().unwrap();
 
@@ -432,14 +421,10 @@ fn main() {
 
     let mut event_pump = sdl_context.event_pump().unwrap();
 
-
     //create new emulator
-    let mut chip8 = emulator::new();
-
-    let args: Vec<String> = env::args().collect(); 
-    let filename = args.get(1).expect("Usage: program <file>");
+    let mut chip8 = Emulator::new();
     //read to rom
-    let mut rom = File::open(filename).expect("Unable to open file");
+    let mut rom = File::open(&args[1]).expect("Unable to open file");
     let mut buffer = Vec::new();
 
     //read file into buffer
@@ -451,10 +436,10 @@ fn main() {
     'gameloop: loop {
         for evt in event_pump.poll_iter() {
             match evt {
-                Event::Quit{..} => {
+                Event::Quit { .. } => {
                     break 'gameloop;
-                },
-                _ => ()
+                }
+                _ => (),
             }
         }
         for _ in 0..TICKS_PER_FRAME {
@@ -464,11 +449,9 @@ fn main() {
         chip8.timer();
         draw_screen(&chip8, &mut canvas);
     }
-
-
 }
 
-fn draw_screen(emu: &emulator, canvas: &mut Canvas<Window>) {
+fn draw_screen(emu: &Emulator, canvas: &mut Canvas<Window>) {
     // Clear canvas as black
     canvas.set_draw_color(Color::RGB(0, 0, 0));
     canvas.clear();
@@ -478,12 +461,10 @@ fn draw_screen(emu: &emulator, canvas: &mut Canvas<Window>) {
     canvas.set_draw_color(Color::RGB(255, 255, 255));
     for (i, pixel) in screen_buf.iter().enumerate() {
         if *pixel {
-            // Convert our 1D array's index into a 2D (x,y) position
             let x = (i % DISPLAY_WIDTH) as u32;
             let y = (i / DISPLAY_HEIGHT) as u32;
 
-            // Draw a rectangle at (x,y), scaled up by our SCALE value
-            let rect = Rect::new((x * 10) as i32, (y * 10) as i32, 10, 10);
+            let rect = Rect::new((x * SCALE) as i32, (y * SCALE) as i32, SCALE, SCALE);
             canvas.fill_rect(rect).unwrap();
         }
     }
