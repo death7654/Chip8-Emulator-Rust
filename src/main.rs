@@ -1,3 +1,13 @@
+/*
+TODO 
+- Add sound
+- Add Input
+- Fix OPCODES
+
+*/
+
+
+
 use std::{env::{self, args}, fs::File, io::Read};
 use sdl2::pixels::Color;
 use sdl2::rect::Rect;
@@ -51,7 +61,7 @@ pub struct emulator {
     ram: [u8; MEMORY_SIZE],
     ram_index: u16,
     //uses boolean as its just black and white pixels
-    display: [bool; DISPLAY_HEIGHT * DISPLAY_WIDTH],
+    display: [bool; DISPLAY_WIDTH * DISPLAY_HEIGHT],
     stack: [u16; STACK_SIZE],
     registers: [u8; REGISTERS],
     sp: u16,
@@ -66,7 +76,7 @@ impl emulator {
         let mut new_emulator = Self {
             pc: START_ADDRESS,
             ram: [0; MEMORY_SIZE],
-            display: [false; DISPLAY_HEIGHT * DISPLAY_WIDTH],
+            display: [false; DISPLAY_WIDTH * DISPLAY_HEIGHT],
             ram_index: 0,
             stack: [0; STACK_SIZE],
             registers: [0; REGISTERS],
@@ -81,7 +91,7 @@ impl emulator {
     pub fn reset(&mut self) {
         self.pc = START_ADDRESS;
         self.ram = [0; MEMORY_SIZE];
-        self.display = [false; DISPLAY_HEIGHT * DISPLAY_WIDTH];
+        self.display = [false; DISPLAY_WIDTH * DISPLAY_HEIGHT];
         self.ram_index = 0;
         self.stack = [0; STACK_SIZE];
         self.registers = [0; REGISTERS];
