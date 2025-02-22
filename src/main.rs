@@ -197,7 +197,7 @@ impl emulator {
                 let vy = (op & 0x00f0) >> 4;
                 self.registers[vx as usize] |= self.registers[vy as usize];
             }
-            (8, 0, 0, 2) => {
+            (8, _, _, 2) => {
                 let vx = (op & 0x0f00) >> 8;
                 let vy = (op & 0x00f0) >> 4;
                 self.registers[vx as usize] &= self.registers[vy as usize];
@@ -392,7 +392,7 @@ impl emulator {
                     self.ram[i+ idx] = self.registers[idx];
                 }
             }
-            (0xf,0,6,5) =>
+            (0xf,_,6,5) =>
             {
                 let x = digit2 as usize;
                 let i = self.registers[x] as usize;
