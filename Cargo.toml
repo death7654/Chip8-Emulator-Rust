@@ -4,5 +4,5 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-rand = "0.7.3"
+rand = { version = "^0.7.3", features = ["wasm-bindgen"] }
 sdl2 = "0.34.3"
