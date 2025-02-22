@@ -423,7 +423,7 @@ fn main() {
     let sdl_context = sdl2::init().unwrap();
     let video_subsystem = sdl_context.video().unwrap();
 
-    let window = video_subsystem.window("Chip_8", (DISPLAY_WIDTH as u32) *10, (DISPLAY_HEIGHT as u32)*10).position_centered().vulkan().build().unwrap();
+    let window = video_subsystem.window("Chip_8", (DISPLAY_WIDTH as u32) *10, (DISPLAY_HEIGHT as u32)*10).position_centered().opengl().build().unwrap();
 
     let mut canvas = window.into_canvas().present_vsync().build().unwrap();
 
