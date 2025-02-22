@@ -1,3 +1,5 @@
+use rand::Rng;
+
 const MEMORY_SIZE: usize = 4096;
 const REGISTERS: usize = 16;
 const STACK_SIZE: usize = 16;
@@ -5,16 +7,13 @@ const DISPLAY_HEIGHT: usize = 32;
 const DISPLAY_WIDTH: usize = 64;
 const KEYPAD_SIZE: usize = 16;
 
-
-
 //addresses
-const START_ADDRESS:u16 = 0x200;
-const FONT_START_ADDRESS:u16 = 0x050;
+const START_ADDRESS: u16 = 0x200;
+const FONT_START_ADDRESS: u16 = 0x050;
 
 //fonts
 const FONTSIZE: usize = 80;
-const FONT_SET: [u8; FONTSIZE] =
-[
+const FONT_SET: [u8; FONTSIZE] = [
     0xF0, 0x90, 0x90, 0x90, 0xF0, // 0
     0x20, 0x60, 0x20, 0x20, 0x70, // 1
     0xF0, 0x10, 0xF0, 0x80, 0xF0, // 2
@@ -30,7 +29,7 @@ const FONT_SET: [u8; FONTSIZE] =
     0xF0, 0x80, 0x80, 0x80, 0xF0, // C
     0xE0, 0x90, 0x90, 0x90, 0xE0, // D
     0xF0, 0x80, 0xF0, 0x80, 0xF0, // E
-    0xF0, 0x80, 0xF0, 0x80, 0x80  // F
+    0xF0, 0x80, 0xF0, 0x80, 0x80, // F
 ];
 
 /*
@@ -39,246 +38,357 @@ const FONT_SET: [u8; FONTSIZE] =
 0x200-0xfff //program space
  */
 
-pub struct emulator
-{
-    pc: u16, 
-    ram:[u8; MEMORY_SIZE],
+pub struct emulator {
+    pc: u16,
+    ram: [u8; MEMORY_SIZE],
     ram_index: u16,
     //uses boolean as its just black and white pixels
-    display: [bool;DISPLAY_HEIGHT*DISPLAY_WIDTH],
+    display: [bool; DISPLAY_HEIGHT * DISPLAY_WIDTH],
     stack: [u16; STACK_SIZE],
     registers: [u8; REGISTERS],
-    i_register: u16,
     sp: u16,
     //uses boolean to identify keypresses
     keypad: [bool; KEYPAD_SIZE],
     sound_timer: u8,
-    delay_timer:  u8
+    delay_timer: u8,
 }
 
-impl emulator
-{
-    pub fn new() -> Self
-    {
-        let mut new_emulator = Self{
+impl emulator {
+    pub fn new() -> Self {
+        let mut new_emulator = Self {
             pc: START_ADDRESS,
             ram: [0; MEMORY_SIZE],
-            display: [false; DISPLAY_HEIGHT*DISPLAY_WIDTH],
+            display: [false; DISPLAY_HEIGHT * DISPLAY_WIDTH],
             ram_index: 0,
             stack: [0; STACK_SIZE],
             registers: [0; REGISTERS],
-            i_register: 0,
             sp: 0,
             keypad: [false; KEYPAD_SIZE],
             sound_timer: 0,
-            delay_timer: 0
+            delay_timer: 0,
         };
         new_emulator.ram[..FONTSIZE].copy_from_slice(&FONT_SET);
         new_emulator
-
     }
-    pub fn reset(&mut self)
-    {
-        self.pc =  START_ADDRESS;
-        self.ram = [0;MEMORY_SIZE];
-        self.display = [false;DISPLAY_HEIGHT*DISPLAY_WIDTH];
+    pub fn reset(&mut self) {
+        self.pc = START_ADDRESS;
+        self.ram = [0; MEMORY_SIZE];
+        self.display = [false; DISPLAY_HEIGHT * DISPLAY_WIDTH];
         self.ram_index = 0;
         self.stack = [0; STACK_SIZE];
         self.registers = [0; REGISTERS];
-        self.i_register = 0;
         self.keypad = [false; KEYPAD_SIZE];
         self.sound_timer = 0;
         self.delay_timer = 0;
-
     }
-    pub fn tick(&mut self)
-    {
+    pub fn tick(&mut self) {
         let op = self.fetch();
 
-        if self.delay_timer > 0
-        {
-            self.delay_timer -=1;
+        if self.delay_timer > 0 {
+            self.delay_timer -= 1;
         }
-        if self.sound_timer > 0
-        {
+        if self.sound_timer > 0 {
             //TODO implement sound
-            self.sound_timer -=1;
+            self.sound_timer -= 1;
         }
-
+        self.decode(op);
     }
     //decrements pc
-    fn pop(&mut self)-> u16{
-        self.sp -=1;
+    fn pop(&mut self) -> u16 {
+        self.sp -= 1;
         self.stack[self.sp as usize]
     }
     //increments pc
-    fn push(&mut self, value: u16)
-    {
+    fn push(&mut self, value: u16) {
         self.stack[self.sp as usize] = value;
-        self.sp +=1;
+        self.sp += 1;
+    }
+    pub fn get_display(&self) -> &[bool] {
+        &self.display
+    }
+    pub fn keypress(&mut self, key: usize, pressed: bool) {
+        self.keypad[key] = pressed;
     }
 
-    fn fetch(&mut self) -> u16
-    {
+    fn fetch(&mut self) -> u16 {
         let upper_byte = self.ram[self.pc as usize] as u16;
-        let lower_byte = self.ram[(self.pc+1) as usize] as u16;
-        self.pc +=2;
+        let lower_byte = self.ram[(self.pc + 1) as usize] as u16;
+        self.pc += 2;
         ((upper_byte << 8) | lower_byte)
     }
-    fn decode(&mut self, op:u16)
-    {
+    fn decode(&mut self, op: u16) {
         let digit1 = (op & 0xf000) >> 12;
         let digit2 = (op & 0x0f00) >> 8;
         let digit3 = (op & 0x00f0) >> 4;
         let digit4 = (op & 0x000f);
 
-        match (digit1, digit2, digit3, digit4)
-        {
-            (0,0,0,0) => {return}
-            (0,0,0xe, 0) => {self.display = [false;DISPLAY_HEIGHT*DISPLAY_WIDTH]}
-            (0,0,0xe, 0xe) => {
+        match (digit1, digit2, digit3, digit4) {
+            (0, 0, 0, 0) => return,
+            (0, 0, 0xe, 0) => self.display = [false; DISPLAY_HEIGHT * DISPLAY_WIDTH],
+            (0, 0, 0xe, 0xe) => {
                 let return_address = self.pop();
-            self.pc = return_address;}
-            (1,_,_,_) => {
+                self.pc = return_address;
+            }
+            (1, _, _, _) => {
                 let address = op & 0x0fff;
                 self.pc = address;
             }
-            (2,_,_,_) => {
-                let address = op& 0x0fff;
+            (2, _, _, _) => {
+                let address = op & 0x0fff;
                 self.push(self.pc);
                 self.pc = address;
             }
-            (3,_,_,_) => {
+            (3, _, _, _) => {
                 //todo check for better methods
                 let vx = (op & 0x00ff) >> 8;
                 let byte = op & 0x00ff;
-                if vx == byte{
-                    self.pc +=2;
+                if vx == byte {
+                    self.pc += 2;
                 }
-
             }
-            (4,_,_,_) => {
-                let vx = (op & 0x0f00)>>8;
+            (4, _, _, _) => {
+                let vx = (op & 0x0f00) >> 8;
                 let byte = op & 0x00ff;
-                if vx != byte
-                {
-                    self.pc +=2;
+                if vx != byte {
+                    self.pc += 2;
                 }
             }
-            (5,_,_,_) => {
+            (5, _, _, _) => {
                 let vx = (op & 0x0f00) >> 8;
                 let vy = (op & 0x00f0) >> 4;
-                if self.registers[vx as usize] == self.registers[vy as usize]
-                {
-                    self.pc +=2;
+                if self.registers[vx as usize] == self.registers[vy as usize] {
+                    self.pc += 2;
                 }
             }
-            (6,_,_,_) => {
+            (6, _, _, _) => {
                 let vx = (op & 0xf00) >> 8;
-                let byte =  (op & 0x00ff) as u8;
+                let byte = (op & 0x00ff) as u8;
                 self.registers[vx as usize] = byte;
             }
-            (7,_,_,_) => {
+            (7, _, _, _) => {
                 let vx = (op & 0xf00) >> 8;
                 let byte = (op & 0x00f0) as u8;
                 self.registers[vx as usize] += byte;
             }
-            (8,_,_,0) => {
+            (8, _, _, 0) => {
                 let vx = (op & 0x0f00) >> 8;
                 let vy = (op & 0x00f0) >> 4;
                 self.registers[vx as usize] = self.registers[vy as usize];
             }
-            (8,_,_,1) => 
-            {
+            (8, _, _, 1) => {
                 let vx = (op & 0x0f00) >> 8;
                 let vy = (op & 0x00f0) >> 4;
                 self.registers[vx as usize] |= self.registers[vy as usize];
             }
-            (8,0,0,2) =>
-            {
+            (8, 0, 0, 2) => {
                 let vx = (op & 0x0f00) >> 8;
                 let vy = (op & 0x00f0) >> 4;
                 self.registers[vx as usize] &= self.registers[vy as usize];
             }
-            (8,_,_,3) =>
-            {
+            (8, _, _, 3) => {
                 let vx = (op & 0x0f00) >> 8;
                 let vy = (op & 0x00f0) >> 4;
                 self.registers[vx as usize] ^= self.registers[vy as usize];
             }
-            (8,_,_,4) =>
-            {
+            (8, _, _, 4) => {
                 let vx = (op & 0x0f00) >> 8;
                 let vy = (op & 0x00f0) >> 4;
-                let (new_vx, carry) = self.registers[vx as usize].overflowing_add(self.registers[vy as usize]);
-                if carry
-                {
+                let (new_vx, carry) =
+                    self.registers[vx as usize].overflowing_add(self.registers[vy as usize]);
+                if carry {
                     self.registers[0xf] = 1;
-                }
-                else {
+                } else {
                     self.registers[0xf] = 0;
                 }
 
                 self.registers[vx as usize] = new_vx;
-
             }
-            (8,_,_,5) => 
-            {
+            (8, _, _, 5) => {
                 let vx = (op & 0x0f00) >> 8;
                 let vy = (op & 0x00f0) >> 4;
-                if self.registers[vx as usize] > self.registers[vy as usize]
-                {
+                if self.registers[vx as usize] > self.registers[vy as usize] {
                     self.registers[0xf] = 1;
-                }
-                else {
+                } else {
                     self.registers[0xf] = 0;
                 }
                 self.registers[vx as usize] -= self.registers[vy as usize];
             }
-            (8,_,_,6) =>
-            {
+            (8, _, _, 6) => {
                 let vx = (op & 0x0f00) >> 8;
                 self.registers[0xf] = self.registers[vx as usize] & 0x1;
-                self.registers[vx as usize] >>=1;
+                self.registers[vx as usize] >>= 1;
             }
-            (8,_,_,7) => 
-            {
+            (8, _, _, 7) => {
                 let vx = (op & 0x0f00) >> 8;
                 let vy = (op & 0x00f0) >> 4;
-                if self.registers[vx as usize] > self.registers[vy as usize]
-                {
+                if self.registers[vx as usize] > self.registers[vy as usize] {
                     self.registers[0xf] = 1;
-                }
-                else {
+                } else {
                     self.registers[0xf] = 0;
                 }
                 self.registers[vx as usize] -= self.registers[vy as usize];
             }
-            (8,_,_,0xE) =>
-            {
+            (8, _, _, 0xE) => {
                 let vx = (op & 0x0f00) >> 8;
                 self.registers[0xf] = (self.registers[vx as usize] & 0x1) >> 7;
-                self.registers[vx as usize] <<=1;
+                self.registers[vx as usize] <<= 1;
             }
-            (9,_,_,0) =>
-            {
+            (9, _, _, 0) => {
                 let vx = (op & 0x0f00) >> 8;
                 let vy = (op & 0x00f0) >> 4;
-                if self.registers[vx as usize] != self.registers[vy as usize]
+                if self.registers[vx as usize] != self.registers[vy as usize] {
+                    self.pc += 2;
+                }
+            }
+            (0xA, _, _, _) => {
+                let address = op & 0x0fff;
+                self.ram_index = address
+            }
+            (0xB, _, _, _) => {
+                let address = op & 0x0fff;
+                self.pc = (self.registers[0] as u16) + address;
+            }
+            (0xC, _, _, _) => {
+                let vx = (op & 0x0f00) >> 8;
+                let nn = (op & 0xFF) as u8;
+                let rng: u8 = rand::thread_rng().gen();
+                self.registers[vx as usize] = rng & nn;
+            }
+            (0xD, _, _, _) => {
+                let x_coordinate = self.registers[digit2 as usize] as u16;
+                let y_coordinate = self.registers[digit3 as usize] as u16;
+                let rows = digit4;
+
+                let mut flipped = false;
+
+                for y_axis in 0..rows{
+                    let address = self.ram_index + y_axis as u16;
+                    let pixels = self.ram[address as usize];
+                    //8 as there are 8 pixels and 64/8 = 8
+                    for x_axis in 0..8
+                    {
+                        //as the chip8 interperter wraps around the screen the modulus operator will wrap it for us
+                        let x = (x_coordinate + x_axis) as usize % DISPLAY_WIDTH;
+                        let y = (y_coordinate + y_axis) as usize % DISPLAY_HEIGHT;
+
+                        let idx = x + DISPLAY_WIDTH * y;
+
+                        flipped |= self.display[idx];
+                        self.display[idx] ^= true;
+
+                    }
+                }
+
+                if flipped 
+                {
+                    self.registers[0xf] = 1
+                }
+                else {
+                    self.registers[0xf] = 0
+                }
+            }
+            (0xe,_,9,0xe) =>
+            {
+                let x = digit2 as usize;
+                let vx = self.registers[x];
+                let key_pressed = self.keypad[vx as usize];
+                if key_pressed
                 {
                     self.pc +=2;
                 }
             }
-            (0xA,_,_,_) =>
+            (0xe, _, 0xa, 1) =>
             {
-                let address = op & 0x0fff;
-                self.ram_index = address
+                let x = digit2 as usize;
+                let vx = self.registers[x];
+                let key_pressed = self.keypad[vx as usize];
+                if !key_pressed
+                {
+                    self.pc +=2;
+                }
             }
-            (_,_,_,_)=> {println!("Unimplemnted OP code")}
+            (0xf,_,0,7) =>
+            {
+                let x = digit2 as usize;
+                self.registers[x]= self.delay_timer;
+            }
+            (0xf,_,0,0xa) =>
+            {
+                let x = digit2 as usize;
+                let mut pressed = false;
+                for i in 0..self.keypad.len()
+                {
+                    if self.keypad[i]
+                    {
+                        self.registers[x] = i as u8;
+                        pressed = true;
+                        break;
+                    }
+                }
+
+                if !pressed
+                {
+                    self.pc -=2;
+                }
+            }
+            (0xf,_,1,5) =>
+            {
+                let vx = digit2 as usize;
+                self.delay_timer = self.registers[vx];
+            }
+            (0xf,_,1,8) =>
+            {
+                let vx = (op & 0xf00) >> 8;
+                self.sound_timer = self.registers[vx as usize];
+            }
+            (0xf,_,1,0xe) =>
+            {
+                let x = digit2 as usize;
+                let vx = self.registers[x] as u16;
+                self.ram_index = self.ram_index.wrapping_add(vx);
+            }
+            (0xf,_,2,9)=>
+            {
+                let x = digit2 as usize;
+                let c = self.registers[x] as u16;
+                self.ram_index = c * 5;
+            }
+            (0xf,_,3,3) =>
+            {
+                //todo make faster
+                let x = digit2 as usize;
+            let vx = self.registers[x] as f32;
+
+            let hundreds = (vx / 100.0).floor() as u8;
+            let tens = ((vx / 10.0) % 10.0).floor() as u8;
+            let ones = (vx % 10.0) as u8;
+
+            self.ram[self.ram_index as usize] = hundreds;
+                self.ram[(self.ram_index + 1) as usize] = tens;
+                self.ram[(self.ram_index + 2) as usize] = ones;
+            }
+            (0xf,_,5,5) =>
+            {
+                let x = digit2 as usize;
+                let i = self.registers[x] as usize;
+                for idx in 0..=x{
+                    self.ram[i+ idx] = self.registers[idx];
+                }
+            }
+            (0xf,0,6,5) =>
+            {
+                let x = digit2 as usize;
+                let i = self.registers[x] as usize;
+                for idx in 0..=x
+                {
+                    self.registers[idx] = self.ram[i+idx];
+                }
+            }
+            (_, _, _, _) => {
+                println!("Unimplemnted OP code")
+            }
         }
-
     }
-
 }
 
 fn main() {
