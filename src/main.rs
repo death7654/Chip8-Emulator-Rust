@@ -7,12 +7,15 @@ TODO
 */
 
 use rand::Rng;
+use rodio::Source;
+use rodio::{source::SineWave, OutputStream, Sink};
 use sdl2::keyboard::Keycode;
 use sdl2::pixels::Color;
 use sdl2::rect::Rect;
 use sdl2::render::Canvas;
 use sdl2::video::Window;
 use sdl2::{self, event::Event};
+use std::time::Duration;
 use std::{
     env::{self},
     fs::File,
@@ -111,14 +114,15 @@ impl Emulator {
 
         self.decode(op);
     }
-    fn timer(&mut self) {
+    fn timer(&mut self) -> bool {
         if self.delay_timer > 0 {
             self.delay_timer -= 1;
         }
         if self.sound_timer > 0 {
-            //TODO implement sound
             self.sound_timer -= 1;
+            return true;
         }
+        return false;
     }
     //decrements pc
     fn pop(&mut self) -> u16 {
@@ -434,21 +438,66 @@ fn main() {
     //load rom
     chip8.load(&buffer);
 
+    //sound
+    let (_stream, stream_handle) = OutputStream::try_default().unwrap();
+    let sink = Sink::try_new(&stream_handle).unwrap();
+    let source = SineWave::new(440.0)
+        .take_duration(Duration::from_secs_f32(5.0))
+        .amplify(0.20)
+        .repeat_infinite();
+    sink.append(source);
+    sink.pause();
+    let mut paused = true;
     'gameloop: loop {
         for evt in event_pump.poll_iter() {
             match evt {
-
                 Event::Quit { .. } => {
                     break 'gameloop;
-                },
+                }
+                Event::KeyDown {
+                    keycode: Some(key), ..
+                } => {
+                    let key = get_input(key);
+                    match key {
+                        Some(key) => {
+                            chip8.keypress(key, true);
+                        }
+                        None => {
+                            println!("Invalid Input")
+                        }
+                    }
+                }
+                Event::KeyUp {
+                    keycode: Some(key), ..
+                } => {
+                    let key = get_input(key);
+                    match key {
+                        Some(key) => {
+                            chip8.keypress(key, false);
+                        }
+                        None => {}
+                    }
+                }
                 _ => (),
+            }
+        }
+        let a = chip8.timer();
+        if a == true {
+            if paused {
+                sink.play();
+                paused = false;
+            }
+        } else {
+            if !paused {
+                sink.pause();
+                paused = true;
             }
         }
         for _ in 0..TICKS_PER_FRAME {
             chip8.cycle();
         }
         //tick both values
-        chip8.timer();
+        let _ = chip8.timer();
         draw_screen(&chip8, &mut canvas);
     }
 }
@@ -473,26 +522,24 @@ fn draw_screen(emu: &Emulator, canvas: &mut Canvas<Window>) {
     canvas.present();
 }
 
-fn get_input(key: Keycode) -> Option<usize>
-{
-    match key
-    {
+fn get_input(key: Keycode) -> Option<usize> {
+    match key {
         Keycode::Num1 => Some(0x1),
-        Keycode::Num2 =>    Some(0x2),
-        Keycode::Num3 =>    Some(0x3),
-        Keycode::Num4 =>    Some(0xC),
-        Keycode::Q =>       Some(0x4),
-        Keycode::W =>       Some(0x5),
-        Keycode::E =>       Some(0x6),
-        Keycode::R =>       Some(0xD),
-        Keycode::A =>       Some(0x7),
-        Keycode::S =>       Some(0x8),
-        Keycode::D =>       Some(0x9),
-        Keycode::F =>       Some(0xE),
-        Keycode::Z =>       Some(0xA),
-        Keycode::X =>       Some(0x0),
-        Keycode::C =>       Some(0xB),
-        Keycode::V =>       Some(0xF),
-        _ => None
+        Keycode::Num2 => Some(0x2),
+        Keycode::Num3 => Some(0x3),
+        Keycode::Num4 => Some(0xC),
+        Keycode::Q => Some(0x4),
+        Keycode::W => Some(0x5),
+        Keycode::E => Some(0x6),
+        Keycode::R => Some(0xD),
+        Keycode::A => Some(0x7),
+        Keycode::S => Some(0x8),
+        Keycode::D => Some(0x9),
+        Keycode::F => Some(0xE),
+        Keycode::Z => Some(0xA),
+        Keycode::X => Some(0x0),
+        Keycode::C => Some(0xB),
+        Keycode::V => Some(0xF),
+        _ => None,
     }
 }
