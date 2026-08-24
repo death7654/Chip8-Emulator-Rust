@@ -13,9 +13,10 @@ use sdl2::keyboard::Keycode;
 use sdl2::pixels::Color;
 use sdl2::rect::Rect;
 use sdl2::render::Canvas;
+use sdl2::video::SwapInterval;
 use sdl2::video::Window;
 use sdl2::{self, event::Event};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use std::{
     env::{self},
     fs::File,
@@ -407,38 +408,43 @@ impl Emulator {
 
 fn main() {
     println!("Hello, world!");
+    
+    // 1. Force VSync off globally before initializing any subsystems
+    sdl2::hint::set("SDL_RENDER_VSYNC", "0");
+
     let args: Vec<_> = env::args().collect();
     let sdl_context = sdl2::init().unwrap();
     let video_subsystem = sdl_context.video().unwrap();
 
-    //opengl generates sprites faster than vulkan
     let window = video_subsystem
         .window("Chip_8", WINDOW_WIDTH, WINDOW_HEIGHT)
         .position_centered()
         .opengl()
         .build()
         .unwrap();
-    //create a canvas with vsync
-    let mut canvas = window.into_canvas().present_vsync().build().unwrap();
+
+    let mut canvas = window.into_canvas().build().unwrap();
 
     canvas.clear();
     canvas.present();
 
     let mut event_pump = sdl_context.event_pump().unwrap();
 
-    //create new emulator
+    // Create new emulator
     let mut chip8 = Emulator::new();
-    //read to rom
-    let mut rom = File::open(&args[1]).expect("Unable to open file");
+    
+    // Read ROM
+    let file = "test_roms/test_opcode.ch8";
+    let mut rom = File::open(file).expect("Unable to open file");
     let mut buffer = Vec::new();
 
-    //read file into buffer
+    // Read file into buffer
     rom.read_to_end(&mut buffer).unwrap();
 
-    //load rom
+    // Load ROM
     chip8.load(&buffer);
 
-    //sound
+    // Audio setup
     let (_stream, stream_handle) = OutputStream::try_default().unwrap();
     let sink = Sink::try_new(&stream_handle).unwrap();
     let source = SineWave::new(440.0)
@@ -448,6 +454,11 @@ fn main() {
     sink.append(source);
     sink.pause();
     let mut paused = true;
+
+    // FPS tracking state
+    let mut last_time = Instant::now();
+    let mut frame_count = 0;
+
     'gameloop: loop {
         for evt in event_pump.poll_iter() {
             match evt {
@@ -457,51 +468,59 @@ fn main() {
                 Event::KeyDown {
                     keycode: Some(key), ..
                 } => {
-                    let key = get_input(key);
-                    match key {
-                        Some(key) => {
-                            chip8.keypress(key, true);
-                        }
-                        None => {
-                            println!("Invalid Input")
-                        }
+                    if let Some(key) = get_input(key) {
+                        chip8.keypress(key, true);
+                    } else {
+                        println!("Invalid Input");
                     }
                 }
                 Event::KeyUp {
                     keycode: Some(key), ..
                 } => {
-                    let key = get_input(key);
-                    match key {
-                        Some(key) => {
-                            chip8.keypress(key, false);
-                        }
-                        None => {}
+                    if let Some(key) = get_input(key) {
+                        chip8.keypress(key, false);
                     }
                 }
                 _ => (),
             }
         }
-        let a = chip8.timer();
-        if a == true {
+
+        // Single timer tick per frame pass
+        let sound_playing = chip8.timer();
+        if sound_playing {
             if paused {
-                sink.play();
+                // sink.play();
                 paused = false;
             }
         } else {
             if !paused {
-                sink.pause();
+                // sink.pause();
                 paused = true;
             }
         }
+
         for _ in 0..TICKS_PER_FRAME {
             chip8.cycle();
         }
-        //tick both values
-        let _ = chip8.timer();
+
         draw_screen(&chip8, &mut canvas);
+
+        // Calculate and display FPS every second
+        frame_count += 1;
+        if last_time.elapsed() >= Duration::from_secs(1) {
+            let elapsed = last_time.elapsed().as_secs_f64();
+            let fps = frame_count as f64 / elapsed;
+
+            canvas
+                .window_mut()
+                .set_title(&format!("Chip_8 | FPS: {:.0}", fps))
+                .ok();
+
+            frame_count = 0;
+            last_time = Instant::now();
+        }
     }
 }
-
 fn draw_screen(emu: &Emulator, canvas: &mut Canvas<Window>) {
     // Clear canvas as black
     canvas.set_draw_color(Color::RGB(0, 0, 0));
