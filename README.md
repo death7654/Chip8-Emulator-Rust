@@ -7,6 +7,7 @@
    - Clone the repository
    - ```cd``` to its folder
    - move sdl.dll to /target/debug
+   - run ``` $env:CMAKE_POLICY_VERSION_MINIMUM="3.5" ```
    - run ```cargo run test_roms/test_opcode.ch8``` or ```cargo run test_roms/test_opcode_with_audio.ch8``` to test audio
        - The test roms were provided by NinjaWeedle found in this [repo](https://github.com/NinjaWeedle/chip8-test-rom-with-audio)
   

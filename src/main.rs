@@ -409,7 +409,7 @@ impl Emulator {
 fn main() {
     println!("Hello, world!");
     
-    // 1. Force VSync off globally before initializing any subsystems
+    sdl2::hint::set("SDL_RENDER_DRIVER", "opengl");
     sdl2::hint::set("SDL_RENDER_VSYNC", "0");
 
     let args: Vec<_> = env::args().collect();
@@ -422,8 +422,8 @@ fn main() {
         .opengl()
         .build()
         .unwrap();
-
     let mut canvas = window.into_canvas().build().unwrap();
+        video_subsystem.gl_set_swap_interval(SwapInterval::Immediate).ok();
 
     canvas.clear();
     canvas.present();
@@ -458,6 +458,10 @@ fn main() {
     // FPS tracking state
     let mut last_time = Instant::now();
     let mut frame_count = 0;
+
+    let mut instructions_executed: u64 = 0;
+    let mut cpu_last_time = Instant::now();
+    let mut cpu_hz: f64 = 0.0;
 
     'gameloop: loop {
         for evt in event_pump.poll_iter() {
@@ -501,6 +505,7 @@ fn main() {
 
         for _ in 0..TICKS_PER_FRAME {
             chip8.cycle();
+            instructions_executed += 1;
         }
 
         draw_screen(&chip8, &mut canvas);
@@ -513,11 +518,23 @@ fn main() {
 
             canvas
                 .window_mut()
-                .set_title(&format!("Chip_8 | FPS: {:.0}", fps))
+                .set_title(&format!(
+                    "Chip_8 | FPS: {:.0} | CPU: {:.0} instructions/sec",
+                    fps, cpu_hz
+                ))
                 .ok();
 
             frame_count = 0;
             last_time = Instant::now();
+        }
+
+        // Recompute the CPU instruction rate every second, independent of
+        // the FPS window above.
+        let cpu_elapsed = cpu_last_time.elapsed();
+        if cpu_elapsed >= Duration::from_secs(1) {
+            cpu_hz = instructions_executed as f64 / cpu_elapsed.as_secs_f64();
+            instructions_executed = 0;
+            cpu_last_time = Instant::now();
         }
     }
 }
