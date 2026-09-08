@@ -130,7 +130,7 @@ impl Emulator {
         self.sp -= 1;
         self.stack[self.sp as usize]
     }
-    fn load(&mut self, data: &[u8]) {
+    pub fn load(&mut self, data: &[u8]) {
         let start_address = START_ADDRESS as usize;
         let end_address = &start_address + data.len();
         self.ram[start_address..end_address].copy_from_slice(data);
@@ -147,14 +147,14 @@ impl Emulator {
         self.keypad[key] = pressed;
     }
 
-    fn fetch(&mut self) -> u16 {
+    pub fn fetch(&mut self) -> u16 {
         let upper_byte = self.ram[self.pc as usize] as u16;
         let lower_byte = self.ram[(self.pc + 1) as usize] as u16;
         let op = (upper_byte << 8) | lower_byte;
         self.pc += 2;
         op
     }
-    fn decode(&mut self, op: u16) {
+    pub fn decode(&mut self, op: u16) {
         let digit1 = (op & 0xF000) >> 12;
         let digit2 = (op & 0x0F00) >> 8;
         let digit3 = (op & 0x00F0) >> 4;
@@ -519,8 +519,8 @@ fn main() {
             canvas
                 .window_mut()
                 .set_title(&format!(
-                    "Chip_8 | FPS: {:.0} | CPU: {:.0} instructions/sec",
-                    fps, cpu_hz
+                    "Standard Chip 8 | CPU: {:.0} instructions/sec",
+                    cpu_hz
                 ))
                 .ok();
 
